@@ -265,14 +265,9 @@ class DeltaGammaHedgedOptionTrade(DeltaHedgedOptionTrade):
         return super()._hedge_trades(df_gamma_hedged_trades)
 
 
-class VarianceSwap(DeltaHedgedOptionTrade):
+class VarianceSwap(OptionTrade):
     @classmethod
-    def _select_options(
-        cls,
-        df_options: pd.DataFrame,
-        legs: list[VarianceSwapLegSpec],
-        **kwargs
-    ) -> pd.DataFrame:
+    def _select_options(cls, df_options: pd.DataFrame, legs: list[VarianceSwapLegSpec], **kwargs) -> pd.DataFrame:
         df_list = []
         check_is_true(len(legs) == 1, "Error a VarianceSwap class can only handle 1 leg.")
         for leg in deepcopy(legs):
@@ -286,48 +281,50 @@ class VarianceSwap(DeltaHedgedOptionTrade):
             )
             logging.info("Selecting options for leg: %s using the rules:\n%s", leg_name, leg)
             selected_option_df = select_closest_maturity(df_options, **leg)
-            selected_option_df = selected_option_df[
+            selected_option_df: pd.DataFrame = selected_option_df.loc[
                 ((selected_option_df["call_put"] == "P") & (selected_option_df["moneyness"] <= 1.0))
                 | ((selected_option_df["call_put"] == "C") & (selected_option_df["moneyness"] >= 1.0))
             ]
             selected_option_df["leg_name"] = leg_name
-            
-            # Implement strike weighting based on variance swap replication formula
-            # Weight proportional to strike_spacing / strike^2
-            selected_option_df["strike_weight"] = strike_spacing / (selected_option_df["strike"] ** 2)
-            
-            # Normalize weights so that sum(weight / spot) = weight
-            selected_option_df = selected_option_df.groupby(["date", "ticker"], group_keys=False).apply(
-                lambda x: cls._normalize_strike_weights(x, weight),
-                include_groups=False
+
+            selected_option_df_pvt = (
+                selected_option_df.pivot_table(index=["date", "expiration", "strike", "option_id"], columns="call_put", values="mid")
+                .reset_index()
+                .sort_values("strike")
             )
-            
-            selected_option_df = selected_option_df[selected_option_df["date"].dt.day_of_week.isin(rebal_week_day)]
-            df_list.append(selected_option_df.rename(columns={"date": "entry_date"}))
+
+            selected_option_df_pvt["dK"] = selected_option_df_pvt["strike"].diff()
+            selected_option_df_pvt["weight_C"] = ((selected_option_df_pvt["dK"] / 2) * selected_option_df_pvt["C"]) / selected_option_df_pvt[
+                "strike"
+            ] ** 2
+            selected_option_df_pvt["weight_P"] = ((selected_option_df_pvt["dK"] / 2) * selected_option_df_pvt["P"]) / selected_option_df_pvt[
+                "strike"
+            ] ** 2
+            selected_option_df_pvt["weight"] = selected_option_df_pvt["weight_P"].fillna(selected_option_df_pvt["weight_C"])
+            selected_option_df_pvt = selected_option_df_pvt[["date", "option_id", "weight"]]
+            selected_option_df = selected_option_df.merge(selected_option_df_pvt, on=["date", "option_id"])
+            selected_option_df = selected_option_df.loc[selected_option_df["date"].dt.day_of_week.isin(rebal_week_day)]
+            print(selected_option_df)
+            selected_option_df_norm = (
+                selected_option_df.groupby("date")
+                .apply(lambda df_group: cls._normalize_strike_weights(df_group, target_weight=weight))
+                .reset_index(drop=True)
+            )
+            df_list.append(selected_option_df_norm.rename(columns={"date": "entry_date"}))
 
         df = pd.concat(df_list)
 
         return df[["entry_date", "option_id", "expiration", "leg_name", "weight", "ticker"]]
-    
+
     @classmethod
     def _normalize_strike_weights(cls, df_group: pd.DataFrame, target_weight: float) -> pd.DataFrame:
-        """Normalize strike weights so that sum(weight / spot) = target_weight.
-        
-        Args:
-            df_group: Group of options for a given date and ticker
-            target_weight: The target total weight normalized by spot
-            
-        Returns:
-            DataFrame with normalized weights
-        """
         spot = df_group["spot"].iloc[0]
-        
-        # Normalize strike weights to sum to target_weight * spot
-        strike_weight_sum = df_group["strike_weight"].sum()
+        strike_weight_sum = df_group["weight"].sum()
+        target_size = target_weight / spot
         if strike_weight_sum > 0:
-            normalization_factor = (target_weight * spot) / strike_weight_sum
-            df_group["weight"] = df_group["strike_weight"] * normalization_factor
+            normalization_factor = target_size / strike_weight_sum
+            df_group["weight"] = df_group["weight"] * normalization_factor
         else:
             df_group["weight"] = 0
-        
+
         return df_group
