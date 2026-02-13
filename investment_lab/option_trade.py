@@ -9,8 +9,8 @@ import pandas as pd
 
 from investment_lab.data.option_db import OptionLoader
 from investment_lab.data.rates_db import USRatesLoader
-from investment_lab.dataclass import OptionLegSpec
-from investment_lab.option_selection import select_options
+from investment_lab.dataclass import OptionLegSpec, VarianceSwapLegSpec
+from investment_lab.option_selection import select_options, select_closest_maturity
 from investment_lab.rates import compute_forward
 from investment_lab.util import check_is_true, ffill_options_data
 
@@ -55,13 +55,9 @@ class OptionTradeABC(ABC):
             The result assume the observation date is the date. To correctly represent position one should add + 1 business day
             to the date column before adding the trade information.
         """
-        df_trades_daily = cls._generate_trades(
-            start_date, end_date, tickers=tickers, legs=legs, cost_neutral=cost_neutral
-        )
+        df_trades_daily = cls._generate_trades(start_date, end_date, tickers=tickers, legs=legs, cost_neutral=cost_neutral)
         hedging_args = hedging_args or {}
-        return cls._hedge_trades(df_trades_daily, **hedging_args)[
-            ["date", "option_id", "entry_date", "leg_name", "weight", "ticker"]
-        ]
+        return cls._hedge_trades(df_trades_daily, **hedging_args)[["date", "option_id", "entry_date", "leg_name", "weight", "ticker"]]
 
     @classmethod
     def _generate_trades(
@@ -84,37 +80,23 @@ class OptionTradeABC(ABC):
         Returns:
             pd.DataFrame: _description_
         """
-        df_options = cls._load_option_data(
-            start_date, end_date, process_kwargs={"ticker": tickers}
-        )
-        df_trades = cls._select_options(
-            df_options, legs, cost_neutral=cost_neutral
-        ).drop_duplicates(subset=["entry_date", "leg_name", "ticker"])
+        df_options = cls._load_option_data(start_date, end_date, process_kwargs={"ticker": tickers})
+        df_trades = cls._select_options(df_options, legs, cost_neutral=cost_neutral)
         df_trades_daily = cls._convert_trades_to_timeseries(df_trades)
         # merge back to get option data for the df_trades
-        df_trades_daily = df_trades_daily.merge(
-            df_options, on=["date", "option_id", "ticker"], how="left"
-        )
-        df_trades_daily = df_trades_daily[
-            df_trades_daily["date"].between(start_date, end_date)
-        ]
-        df_trades_daily = df_trades_daily.drop_duplicates(
-            subset=["date", "leg_name", "option_id"]
-        )
+        df_trades_daily = df_trades_daily.merge(df_options, on=["date", "option_id", "ticker"], how="left")
+        df_trades_daily = df_trades_daily[df_trades_daily["date"].between(start_date, end_date)]
+        df_trades_daily = df_trades_daily.drop_duplicates(subset=["date", "leg_name", "option_id"])
         df_trades_daily = ffill_options_data(df_trades_daily)
         if "risk_free_rate" not in df_trades_daily.columns:
             start, end = df_trades_daily["date"].min(), df_trades_daily["date"].max()
             df_rates = USRatesLoader.load_data(start, end)
-            df_trades_daily = compute_forward(
-                df_options=df_trades_daily, df_rates=df_rates
-            )
+            df_trades_daily = compute_forward(df_options=df_trades_daily, df_rates=df_rates)
 
         return df_trades_daily
 
     @classmethod
-    def _load_option_data(
-        cls, start_date: datetime, end_date: datetime, **kwargs
-    ) -> pd.DataFrame:
+    def _load_option_data(cls, start_date: datetime, end_date: datetime, **kwargs) -> pd.DataFrame:
         """Concrete function that should be overridden in the child class. THis one wraps
             - `_load_data` to load the data from the source
             - `_preprocess_option_data` to preprocess the data after loading
@@ -138,9 +120,7 @@ class OptionTradeABC(ABC):
 
     @classmethod
     @abstractmethod
-    def load_data(
-        cls, start_date: datetime, end_date: datetime, **kwargs
-    ) -> pd.DataFrame:
+    def load_data(cls, start_date: datetime, end_date: datetime, **kwargs) -> pd.DataFrame:
         raise NotImplementedError
 
     @classmethod
@@ -164,29 +144,18 @@ class OptionTradeABC(ABC):
                 np.all([0 <= rebal <= 4 for rebal in rebal_week_day]),
                 "Error, provide a rebalance week day among {0,1,2,3,4}",
             )
-            logging.info(
-                "Selecting options for leg: %s using the rules:\n%s", leg_name, leg
-            )
+            logging.info("Selecting options for leg: %s using the rules:\n%s", leg_name, leg)
             selected_option_df = select_options(df_options, **leg)
             selected_option_df["leg_name"] = leg_name
-            selected_option_df["weight"] = (
-                weight
-                / selected_option_df["spot"].where(
-                    selected_option_df["spot"] != 0, np.nan
-                )
-            ).ffill()
-            selected_option_df = selected_option_df[
-                selected_option_df["date"].dt.day_of_week.isin(rebal_week_day)
-            ]
+            selected_option_df["weight"] = (weight / selected_option_df["spot"].where(selected_option_df["spot"] != 0, np.nan)).ffill()
+            selected_option_df = selected_option_df[selected_option_df["date"].dt.day_of_week.isin(rebal_week_day)]
             df_list.append(selected_option_df.rename(columns={"date": "entry_date"}))
 
         df = pd.concat(df_list)
         if cost_neutral:
             df = cls._neutralize_cost(df)
 
-        return df[
-            ["entry_date", "option_id", "expiration", "leg_name", "weight", "ticker"]
-        ]
+        return df[["entry_date", "option_id", "expiration", "leg_name", "weight", "ticker"]].drop_duplicates(subset=["entry_date", "leg_name", "ticker"])
 
     @classmethod
     def _neutralize_cost(cls, df_trades: pd.DataFrame) -> pd.DataFrame:
@@ -200,20 +169,14 @@ class OptionTradeABC(ABC):
             values="premium",
             aggfunc="sum",
         )
-        df_trade_pivot["missing_premium"] = (
-            -df_trade_pivot["Long"] - df_trade_pivot["Short"]
-        )
+        df_trade_pivot["missing_premium"] = -df_trade_pivot["Long"] - df_trade_pivot["Short"]
         df_trade_pivot["scaling_factor"] = np.where(
             df_trade_pivot["missing_premium"] < 0,
-            (df_trade_pivot["Short"] + df_trade_pivot["missing_premium"])
-            / df_trade_pivot["Short"],
-            (df_trade_pivot["Long"] + df_trade_pivot["missing_premium"])
-            / df_trade_pivot["Long"],
+            (df_trade_pivot["Short"] + df_trade_pivot["missing_premium"]) / df_trade_pivot["Short"],
+            (df_trade_pivot["Long"] + df_trade_pivot["missing_premium"]) / df_trade_pivot["Long"],
         )
         df_trades_cp = df_trades_cp.merge(
-            df_trade_pivot.reset_index()[
-                ["entry_date", "ticker", "scaling_factor", "missing_premium"]
-            ],
+            df_trade_pivot.reset_index()[["entry_date", "ticker", "scaling_factor", "missing_premium"]],
             on=["entry_date", "ticker"],
             how="left",
         )
@@ -230,15 +193,11 @@ class OptionTradeABC(ABC):
         logging.info("Converting %s df_trades to daily time series", len(df_trades))
         df_trades_cp = df_trades.copy()
         df_trades_cp["date"] = df_trades_cp.apply(
-            lambda r: pd.date_range(
-                start=r["entry_date"], end=r["expiration"], freq="B"
-            ),
+            lambda r: pd.date_range(start=r["entry_date"], end=r["expiration"], freq="B"),
             axis=1,
         )
         df_trades_cp = df_trades_cp.explode("date").reset_index(drop=True)
-        return df_trades_cp[
-            ["date", "option_id", "entry_date", "leg_name", "weight", "ticker"]
-        ]
+        return df_trades_cp[["date", "option_id", "entry_date", "leg_name", "weight", "ticker"]]
 
     @classmethod
     def _hedge_trades(cls, df_trades: pd.DataFrame, **kwargs) -> pd.DataFrame:
@@ -278,28 +237,17 @@ class DeltaHedgedOptionTrade(OptionTrade):
                         "expiration": x["date"].iloc[0] + pd.offsets.BusinessDay(n=1),
                         "leg_name": "DELTA_HEDGING",
                         "weight": -(x["delta"] * x["weight"]).sum(),
-                        "spot": x["spot"].iloc[0],
-                        "bid": x["spot"].iloc[0],
-                        "ask": x["spot"].iloc[0],
-                        "mid": x["spot"].iloc[0],
-                        "delta": 1,
                     }
                 )
             )
             .reset_index()
         )
-        return (
-            pd.concat([df_trades, df_hedge], ignore_index=True)
-            .sort_values(by=["date", "option_id"])
-            .reset_index(drop=True)
-        )
+        return pd.concat([df_trades, df_hedge], ignore_index=True).sort_values(by=["date", "option_id"]).reset_index(drop=True)
 
 
 class DeltaGammaHedgedOptionTrade(DeltaHedgedOptionTrade):
     @classmethod
-    def _hedge_trades(
-        cls, df_trades: pd.DataFrame, *, hedging_leg: OptionLegSpec, **kwargs
-    ) -> pd.DataFrame:
+    def _hedge_trades(cls, df_trades: pd.DataFrame, *, hedging_leg: OptionLegSpec, **kwargs) -> pd.DataFrame:
         logging.info("Applying gamma-delta hedging to df_trades")
         start, end, tickers = (
             df_trades["date"].min(),
@@ -313,7 +261,73 @@ class DeltaGammaHedgedOptionTrade(DeltaHedgedOptionTrade):
             tickers=tickers,
             legs=[hedging_leg],
         )
-        df_gamma_hedged_trades = pd.concat(
-            [df_trades, df_gamma_hedge], ignore_index=True
-        )
+        df_gamma_hedged_trades = pd.concat([df_trades, df_gamma_hedge], ignore_index=True)
         return super()._hedge_trades(df_gamma_hedged_trades)
+
+
+class VarianceSwap(DeltaHedgedOptionTrade):
+    @classmethod
+    def _select_options(
+        cls,
+        df_options: pd.DataFrame,
+        legs: list[VarianceSwapLegSpec],
+        **kwargs
+    ) -> pd.DataFrame:
+        df_list = []
+        check_is_true(len(legs) == 1, "Error a VarianceSwap class can only handle 1 leg.")
+        for leg in deepcopy(legs):
+            leg_name = "VARIANCE SWAP"
+            weight = leg.pop("weight", np.nan)
+            strike_spacing = leg.pop("strike_spacing", np.nan)
+            rebal_week_day = leg.pop("rebal_week_day", 1)
+            check_is_true(
+                np.all([0 <= rebal <= 4 for rebal in rebal_week_day]),
+                "Error, provide a rebalance week day among {0,1,2,3,4}",
+            )
+            logging.info("Selecting options for leg: %s using the rules:\n%s", leg_name, leg)
+            selected_option_df = select_closest_maturity(df_options, **leg)
+            selected_option_df = selected_option_df[
+                ((selected_option_df["call_put"] == "P") & (selected_option_df["moneyness"] <= 1.0))
+                | ((selected_option_df["call_put"] == "C") & (selected_option_df["moneyness"] >= 1.0))
+            ]
+            selected_option_df["leg_name"] = leg_name
+            
+            # Implement strike weighting based on variance swap replication formula
+            # Weight proportional to strike_spacing / strike^2
+            selected_option_df["strike_weight"] = strike_spacing / (selected_option_df["strike"] ** 2)
+            
+            # Normalize weights so that sum(weight / spot) = weight
+            selected_option_df = selected_option_df.groupby(["date", "ticker"], group_keys=False).apply(
+                lambda x: cls._normalize_strike_weights(x, weight),
+                include_groups=False
+            )
+            
+            selected_option_df = selected_option_df[selected_option_df["date"].dt.day_of_week.isin(rebal_week_day)]
+            df_list.append(selected_option_df.rename(columns={"date": "entry_date"}))
+
+        df = pd.concat(df_list)
+
+        return df[["entry_date", "option_id", "expiration", "leg_name", "weight", "ticker"]]
+    
+    @classmethod
+    def _normalize_strike_weights(cls, df_group: pd.DataFrame, target_weight: float) -> pd.DataFrame:
+        """Normalize strike weights so that sum(weight / spot) = target_weight.
+        
+        Args:
+            df_group: Group of options for a given date and ticker
+            target_weight: The target total weight normalized by spot
+            
+        Returns:
+            DataFrame with normalized weights
+        """
+        spot = df_group["spot"].iloc[0]
+        
+        # Normalize strike weights to sum to target_weight * spot
+        strike_weight_sum = df_group["strike_weight"].sum()
+        if strike_weight_sum > 0:
+            normalization_factor = (target_weight * spot) / strike_weight_sum
+            df_group["weight"] = df_group["strike_weight"] * normalization_factor
+        else:
+            df_group["weight"] = 0
+        
+        return df_group

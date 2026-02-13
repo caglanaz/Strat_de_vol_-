@@ -26,18 +26,18 @@ def select_options(
         pd.DataFrame: The selected options.
     """
     return select_closest_strike(
-        select_closest_maturity(df_options, target=day_to_expiry_target),
+        select_closest_maturity(df_options, day_to_expiry_target=day_to_expiry_target),
         strike_col=strike_col,
         target=strike_target,
         call_put=call_or_put,
     ).drop_duplicates(["date", "ticker"])
 
 
-def select_closest_maturity(df_option: pd.DataFrame, target: int) -> pd.DataFrame:
+def select_closest_maturity(df_option: pd.DataFrame, day_to_expiry_target: int) -> pd.DataFrame:
     return _select_close_target(
         df_option,
         target_col="day_to_expiration",
-        target=target,
+        target=day_to_expiry_target,
         groupby_cols=["date", "ticker"],
     )
 
@@ -58,9 +58,7 @@ def select_closest_strike(
     )
 
 
-def _select_close_target(
-    df: pd.DataFrame, target_col: str, target: float | int, groupby_cols: list[str]
-) -> pd.DataFrame:
+def _select_close_target(df: pd.DataFrame, target_col: str, target: float | int, groupby_cols: list[str]) -> pd.DataFrame:
     """Find the set option defined by groupby_cols closest to the target in target_col.
     ie: minimize the absolute distance in each group.
 
@@ -80,6 +78,4 @@ def _select_close_target(
     )
     df["criterion"] = abs(df[target_col] - target)
     df_minimum_dist = df.groupby(groupby_cols)[["criterion"]].min().reset_index()
-    return df.merge(df_minimum_dist, on=[*groupby_cols, "criterion"], how="inner").drop(
-        columns=["criterion"]
-    )
+    return df.merge(df_minimum_dist, on=[*groupby_cols, "criterion"], how="inner").drop(columns=["criterion"])
