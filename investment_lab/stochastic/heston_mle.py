@@ -1,0 +1,42 @@
+from dataclasses import dataclass
+
+import numpy as np
+from scipy.optimize import minimize
+
+from investment_lab.stochastic.heston_ssm import HestonParams, HestonStateSpaceModel
+from investment_lab.stochastic.ukf import ScalarUnscentedKalmanFilter
+
+
+@dataclass
+class HestonFitResult:
+    params: HestonParams
+    success: bool
+    fun: float
+
+
+def _to_params(x: np.ndarray) -> HestonParams:
+    return HestonParams(kappa=x[0], theta=x[1], xi=x[2], rho=x[3], mu=x[4])
+
+
+def fit_heston_params_rolling(
+    returns: np.ndarray,
+    initial_guess: tuple[float, float, float, float, float] = (2.0, 0.04, 0.4, -0.5, 0.0),
+    bounds: tuple[tuple[float, float], ...] = ((1e-3, 20.0), (1e-6, 2.0), (1e-4, 5.0), (-0.99, 0.99), (-1.0, 1.0)),
+    init_state: float = 0.04,
+    init_var: float = 0.01,
+    measurement_var: float = 1e-8,
+    ukf: ScalarUnscentedKalmanFilter | None = None,
+) -> HestonFitResult:
+    """Fit Heston parameters by maximizing UKF log-likelihood on one window."""
+
+    r = np.asarray(returns, dtype=float)
+    kf = ukf or ScalarUnscentedKalmanFilter()
+
+    def objective(x: np.ndarray) -> float:
+        params = _to_params(x)
+        model = HestonStateSpaceModel(params)
+        res = kf.filter(r, model=model, init_state=init_state, init_var=init_var, measurement_var=measurement_var)
+        return -res.loglikelihood
+
+    opt = minimize(objective, x0=np.asarray(initial_guess, dtype=float), method="L-BFGS-B", bounds=bounds)
+    return HestonFitResult(params=_to_params(opt.x), success=bool(opt.success), fun=float(opt.fun))
