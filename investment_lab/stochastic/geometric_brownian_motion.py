@@ -1,60 +1,82 @@
-from investment_lab.stochastic.base import StochasticProcess
 import numpy as np
 import pandas as pd
 
+from projet.investment_lab.stochastic.base import StochasticProcess
+from projet.investment_lab.constants import TRADING_DAYS_PER_YEAR
+
 
 class GeometricBrownianMotion(StochasticProcess):
-    def __init__(
-        self,
-        mu: float = 0.0,
-        sigma: float = 0.2,
-        s0: float = 100.0,
-        dt: float = 1.0 / 252.0,
-    ) -> None:
-        self.mu = float(mu)
-        self.sigma = float(sigma)
-        self.s0 = float(s0)
-        self.dt = float(dt)
+    """
+    dS_t = mu * S_t * dt + sigma * S_t * dW_t
+
+    Parameters
+    ----------
+    mu    : annualised drift (risk-neutral: set to risk_free_rate)
+    sigma : annualised volatility
+    """
+
+    def __init__(self, mu: float = 0.0, sigma: float = 0.20) -> None:
+        self.mu = mu
+        self.sigma = sigma
 
     def simulate(
         self,
+        S0: float,
+        T: float,
         n_steps: int,
-        n_paths: int = 1,
-        s0: float | None = None,
-        random_state: int | None = None,
+        n_paths: int,
+        dt: float | None = None,
+        seed: int | None = None,
     ) -> np.ndarray:
-        """Simulate GBM price paths with Euler-exact lognormal dynamics."""
-        if n_steps <= 0:
-            raise ValueError("n_steps must be > 0")
-        if n_paths <= 0:
-            raise ValueError("n_paths must be > 0")
+        """
+        Simulate GBM paths using the exact discretisation scheme.
 
-        s0_val = self.s0 if s0 is None else float(s0)
-        rng = np.random.default_rng(random_state)
-        z = rng.standard_normal((n_steps, n_paths))
+        Parameters
+        ----------
+        S0      : initial spot price
+        T       : total horizon in years
+        n_steps : number of time steps
+        n_paths : number of Monte-Carlo paths
+        dt      : step size (overrides T / n_steps if provided)
+        seed    : random seed for reproducibility
 
-        drift = (self.mu - 0.5 * self.sigma**2) * self.dt
-        diffusion = self.sigma * np.sqrt(self.dt) * z
-        log_returns = drift + diffusion
+        Returns
+        -------
+        np.ndarray of shape (n_paths, n_steps + 1)
+        """
+        rng = np.random.default_rng(seed)
+        dt = dt if dt is not None else T / n_steps
+        Z = rng.standard_normal((n_paths, n_steps))
 
-        paths = np.empty((n_steps + 1, n_paths), dtype=float)
-        paths[0, :] = s0_val
-        paths[1:, :] = s0_val * np.exp(np.cumsum(log_returns, axis=0))
+        increments = np.exp(
+            (self.mu - 0.5 * self.sigma**2) * dt
+            + self.sigma * np.sqrt(dt) * Z
+        )
+        paths = np.empty((n_paths, n_steps + 1))
+        paths[:, 0] = S0
+        paths[:, 1:] = S0 * np.cumprod(increments, axis=1)
         return paths
 
-    def calibrate(self, returns: np.ndarray | pd.Series, dt: float | None = None) -> tuple[float, float]:
-        """Calibrate mu and sigma from simple returns."""
-        r = np.asarray(returns, dtype=float)
-        if r.size == 0:
-            raise ValueError("returns must contain at least one observation")
-        step = self.dt if dt is None else float(dt)
-        if step <= 0:
-            raise ValueError("dt must be > 0")
+    def calibrate(self, prices: pd.Series | np.ndarray) -> "GeometricBrownianMotion":
+        """
+        MLE calibration from a price (or index) series.
 
-        log_r = np.log1p(r)
-        sigma_hat = float(log_r.std(ddof=1) / np.sqrt(step))
-        mu_hat = float(log_r.mean() / step + 0.5 * sigma_hat**2)
+        Estimates mu and sigma from log-returns assuming daily frequency
+        (TRADING_DAYS_PER_YEAR = 252).
 
-        self.mu = mu_hat
-        self.sigma = sigma_hat
-        return self.mu, self.sigma
+        Parameters
+        ----------
+        prices : observed price series (chronological order)
+
+        Returns
+        -------
+        self  (allows chaining)
+        """
+        prices = np.asarray(prices, dtype=float)
+        log_returns = np.diff(np.log(prices))
+        mu_daily = log_returns.mean()
+        sigma_daily = log_returns.std(ddof=1)
+
+        self.sigma = sigma_daily * np.sqrt(TRADING_DAYS_PER_YEAR)
+        self.mu = mu_daily * TRADING_DAYS_PER_YEAR + 0.5 * self.sigma**2
+        return self
