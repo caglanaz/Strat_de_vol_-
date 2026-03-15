@@ -5,6 +5,7 @@ from scipy.optimize import minimize
 
 from investment_lab.stochastic.heston_ssm import HestonParams, HestonStateSpaceModel
 from investment_lab.stochastic.ukf import ScalarUnscentedKalmanFilter
+from investment_lab.util import check_is_true
 
 
 @dataclass
@@ -25,11 +26,17 @@ def fit_heston_params_rolling(
     init_state: float = 0.04,
     init_var: float = 0.01,
     measurement_var: float = 1e-8,
+    min_obs: int = 30,
     ukf: ScalarUnscentedKalmanFilter | None = None,
 ) -> HestonFitResult:
     """Fit Heston parameters by maximizing UKF log-likelihood on one window."""
 
     r = np.asarray(returns, dtype=float)
+    check_is_true(min_obs > 1, "min_obs must be > 1")
+    check_is_true(len(r) >= min_obs, f"returns must contain at least {min_obs} observations")
+    check_is_true(init_state > 0, "init_state must be > 0")
+    check_is_true(init_var > 0, "init_var must be > 0")
+    check_is_true(measurement_var >= 0, "measurement_var must be >= 0")
     kf = ukf or ScalarUnscentedKalmanFilter()
 
     def objective(x: np.ndarray) -> float:

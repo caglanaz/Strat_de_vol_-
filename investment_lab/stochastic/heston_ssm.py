@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from investment_lab.constants import TRADING_DAYS_PER_YEAR
+from investment_lab.util import check_is_true
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,11 @@ class HestonStateSpaceModel:
     """One-factor latent variance state-space model using Heston dynamics."""
 
     def __init__(self, params: HestonParams, dt: float = 1.0 / TRADING_DAYS_PER_YEAR) -> None:
+        check_is_true(dt > 0, "dt must be > 0")
+        check_is_true(params.kappa > 0, "kappa must be > 0")
+        check_is_true(params.theta > 0, "theta must be > 0")
+        check_is_true(params.xi > 0, "xi must be > 0")
+        check_is_true(-1.0 < params.rho < 1.0, "rho must be in (-1, 1)")
         self.params = params
         self.dt = dt
 

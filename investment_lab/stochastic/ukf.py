@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from investment_lab.stochastic.heston_ssm import HestonStateSpaceModel
+from investment_lab.util import check_is_true
 
 
 @dataclass
@@ -18,6 +19,8 @@ class ScalarUnscentedKalmanFilter:
     """Lightweight scalar UKF for latent variance filtering."""
 
     def __init__(self, alpha: float = 1e-3, beta: float = 2.0, kappa: float = 0.0) -> None:
+        check_is_true(alpha > 0, "alpha must be > 0")
+        check_is_true(beta >= 0, "beta must be >= 0")
         self.alpha = alpha
         self.beta = beta
         self.kappa = kappa
@@ -26,6 +29,7 @@ class ScalarUnscentedKalmanFilter:
         n = 1
         lam = self.alpha**2 * (n + self.kappa) - n
         c = n + lam
+        check_is_true(c > 0, "Invalid UKF scaling: n + lambda must be > 0")
         sqrt_term = np.sqrt(max(c * var, 1e-16))
 
         points = np.array([mean, mean + sqrt_term, mean - sqrt_term])
