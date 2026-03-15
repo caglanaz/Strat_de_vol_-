@@ -28,8 +28,8 @@ def ffill_options_data(df: pd.DataFrame) -> pd.DataFrame:
         df.sort_values(by=["option_id", "date"])
         .groupby(
             "option_id",
-            as_index=True,
             group_keys=False,
         )
-        .apply(lambda x: x.ffill())
+        .apply(lambda x: x.ffill().assign(option_id=x.name))
+        .reset_index(drop=True)
     )

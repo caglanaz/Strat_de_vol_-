@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 from typing import Sequence
 
 import numpy as np
@@ -6,13 +7,16 @@ import pandas as pd
 
 from investment_lab.data.data_loader import DataLoader
 
-ROOT_PATH = r"../"
+def _data_root() -> Path:
+    """Return a stable data root regardless of current working directory."""
+    module_root = Path(__file__).resolve().parents[2]
+    return module_root / "data"
 
 
 class OptionLoader(DataLoader):
     @classmethod
     def _get_path(cls) -> str:
-        return rf"{ROOT_PATH}/data/optiondb_2016_2023.parquet"
+        return str(_data_root() / "optiondb_2016_2023.parquet")
 
     @classmethod
     def _get_valid_date_range(cls) -> tuple[datetime, datetime]:
@@ -57,7 +61,7 @@ class OptionLoader(DataLoader):
 class SPYOptionLoader(OptionLoader):
     @classmethod
     def _get_path(cls) -> str:
-        return rf"{ROOT_PATH}/data/spy_2020_2022.parquet"
+        return str(_data_root() / "spy_2020_2022.parquet")
 
     @classmethod
     def _get_valid_date_range(cls) -> tuple[datetime, datetime]:
@@ -67,7 +71,7 @@ class SPYOptionLoader(OptionLoader):
 class AAPLOptionLoader(OptionLoader):
     @classmethod
     def _get_path(cls) -> str:
-        return rf"{ROOT_PATH}/data/aapl_2016_2023.parquet"
+        return str(_data_root() / "aapl_2016_2023.parquet")
 
     @classmethod
     def _get_valid_date_range(cls) -> tuple[datetime, datetime]:

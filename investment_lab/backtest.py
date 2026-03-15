@@ -52,10 +52,10 @@ class StrategyBacktester:
         df_positions["dS"] = df_positions.groupby(["option_id"])["spot"].diff().fillna(0)
         df_positions["dt"] = 1
         logging.info("Append previous period greeks for P&L calculations.")
-        df_positions["prev_theta"] = df_positions.groupby("option_id")["theta"].shift(1).fillna(method="bfill")
-        df_positions["prev_gamma"] = df_positions.groupby("option_id")["gamma"].shift(1).fillna(method="bfill")
-        df_positions["prev_delta"] = df_positions.groupby("option_id")["delta"].shift(1).fillna(method="bfill")
-        df_positions["prev_vega"] = df_positions.groupby("option_id")["vega"].shift(1).fillna(method="bfill")
+        df_positions["prev_theta"] = df_positions.groupby("option_id")["theta"].shift(1).bfill()
+        df_positions["prev_gamma"] = df_positions.groupby("option_id")["gamma"].shift(1).bfill()
+        df_positions["prev_delta"] = df_positions.groupby("option_id")["delta"].shift(1).bfill()
+        df_positions["prev_vega"] = df_positions.groupby("option_id")["vega"].shift(1).bfill()
         df_positions["obs_date"] = df_positions["entry_date"].apply(lambda x: x - pd.Timedelta(days=1))
         df_pnl = pd.DataFrame(
             [[0, 0, 0, 0, 0, 0, 0, 0]],
@@ -84,7 +84,7 @@ class StrategyBacktester:
             df_day["vega_pnl"] = df_day["scaled_weight"] * df_day["dsigma"] * df_day["prev_vega"]
             df_day["residual_pnl"] = df_day["pnl"] - df_day["delta_pnl"] - df_day["gamma_pnl"] - df_day["theta_pnl"] - df_day["vega_pnl"]
             df_day["leverage"] = df_day["scaled_weight"] * df_day["spot"]
-            df_day["cashflow"] = 0
+            df_day["cashflow"] = 0.0
             df_day.loc[df_day["entry_date"] == df_day["date"], "cashflow"] = -df_day["scaled_weight"] * df_day["mid"]
             df_day.loc[df_day["expiration"] == df_day["date"], "cashflow"] = df_day["scaled_weight"] * df_day["mid"]
 
@@ -115,20 +115,15 @@ class StrategyBacktester:
         tickers = df_positions_cp["ticker"].unique().tolist()
         df_options = OptionLoader.load_data(start, end, process_kwargs={"ticker": tickers})
         df_spot = (
-            df_options.groupby(["date", "ticker"])
-            .apply(
-                lambda x: pd.Series(
-                    {
-                        "option_id": x["ticker"].iloc[0],
-                        "spot": x["spot"].iloc[0],
-                        "bid": x["spot"].iloc[0],
-                        "ask": x["spot"].iloc[0],
-                        "mid": x["spot"].iloc[0],
-                        "delta": 1,
-                    }
-                )
+            df_options.groupby(["date", "ticker"], as_index=False)[["spot"]]
+            .first()
+            .assign(
+                option_id=lambda d: d["ticker"],
+                bid=lambda d: d["spot"],
+                ask=lambda d: d["spot"],
+                mid=lambda d: d["spot"],
+                delta=1.0,
             )
-            .reset_index()
         )
         df_options_spot = pd.concat([df_options, df_spot])
         df_positions_extended = df_positions_cp.merge(df_options_spot, how="left", on=["ticker", "option_id", "date"])
@@ -177,12 +172,16 @@ class StrategyBacktester:
         return self._df_drifted_positions
 
     def __del__(self):
-        logging.info("Deleting StrategyBacktest instance and freeing up memory.")
-        self._df_positions = pd.DataFrame()
-        self._df_pnl = pd.DataFrame()
-        self._df_nav = pd.DataFrame()
-        self._df_metainfo = pd.DataFrame()
-        self._df_drifted_positions = pd.DataFrame()
+        try:
+            logging.info("Deleting StrategyBacktest instance and freeing up memory.")
+            self._df_positions = None
+            self._df_pnl = None
+            self._df_nav = None
+            self._df_metainfo = None
+            self._df_drifted_positions = None
+        except Exception:
+            # During interpreter shutdown, modules can already be partially unloaded.
+            pass
 
 
 class BacktesterBidAskFromData(StrategyBacktester):

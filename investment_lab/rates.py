@@ -30,19 +30,27 @@ def compute_forward(df_options: pd.DataFrame, df_rates: pd.DataFrame) -> pd.Data
         f"df_options is missing columns: {missing_options_cols}",
     )
 
-    def _compute_values(group: pd.DataFrame) -> pd.DataFrame:
-        dte = group["day_to_expiration"].unique()[0] / DAYS_PER_YEAR
-        tenors = group[TENOR_TO_PERIOD.keys()].columns.map(TENOR_TO_PERIOD).to_numpy()
-        rate_curve = (
-            group[TENOR_TO_PERIOD.keys()].drop_duplicates().to_numpy().reshape(-1)
-        )
-        interpolated_rate = interpolate_rates(dte, tenors=tenors, rate_curve=rate_curve)
-        group["risk_free_rate"] = interpolated_rate
-        return group
-
     df = df_options.merge(df_rates, on="date", how="left")
-    df = (
-        df.groupby(["date", "expiration"]).apply(_compute_values).reset_index(drop=True)
+    term_cols = list(TENOR_TO_PERIOD.keys())
+    tenors = np.array([TENOR_TO_PERIOD[c] for c in term_cols], dtype=float)
+
+    grouped_rates = (
+        df.groupby(["date", "expiration"], as_index=False)
+        .first()[["date", "expiration", "day_to_expiration"] + term_cols]
+        .copy()
+    )
+    grouped_rates["risk_free_rate"] = grouped_rates.apply(
+        lambda r: interpolate_rates(
+            r["day_to_expiration"] / DAYS_PER_YEAR,
+            tenors=tenors,
+            rate_curve=r[term_cols].to_numpy(dtype=float),
+        ),
+        axis=1,
+    )
+    df = df.merge(
+        grouped_rates[["date", "expiration", "risk_free_rate"]],
+        on=["date", "expiration"],
+        how="left",
     )
     df["forward"] = df["spot"] * np.exp(
         df["risk_free_rate"] * df["day_to_expiration"] / DAYS_PER_YEAR

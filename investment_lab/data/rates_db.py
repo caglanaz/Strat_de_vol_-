@@ -1,16 +1,20 @@
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 
 from investment_lab.data.data_loader import DataLoader
 
-ROOT_PATH = r"../"
+def _data_root() -> Path:
+    """Return a stable data root regardless of current working directory."""
+    module_root = Path(__file__).resolve().parents[2]
+    return module_root / "data"
 
 
 class USRatesLoader(DataLoader):
     @classmethod
     def _get_path(cls) -> str:
-        return rf"{ROOT_PATH}/data/par-yield-curve-rates-2020-2023.csv"
+        return str(_data_root() / "par-yield-curve-rates-2020-2023.csv")
 
     @classmethod
     def _get_valid_date_range(cls) -> tuple[datetime, datetime]:
