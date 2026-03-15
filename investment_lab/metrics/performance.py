@@ -48,8 +48,8 @@ def excess_return(
     """
     return returns - (
         risk_free_rate
-        if annualized_risk_free_rate
-        else annualized_risk_free_rate / TRADING_DAYS_PER_YEAR
+        if not annualized_risk_free_rate
+        else risk_free_rate / TRADING_DAYS_PER_YEAR
     )
 
 
