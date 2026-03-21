@@ -1,8 +1,8 @@
 import pandas as pd
 
-from investment_lab.constants import TRADING_DAYS_PER_YEAR
-from investment_lab.metrics.util import returns_to_levels
-from investment_lab.metrics.volatility import realized_volatility
+from projet.investment_lab.constants import TRADING_DAYS_PER_YEAR
+from projet.investment_lab.metrics.util import returns_to_levels, levels_to_returns
+from projet.investment_lab.metrics.volatility import realized_volatility
 
 
 def realized_returns(returns: pd.Series) -> float:
@@ -91,3 +91,31 @@ def calmar_ratio(returns: pd.Series) -> float:
     if maximum_drawdown == 0:
         return float("inf")
     return annualized_return / maximum_drawdown
+
+
+def format_perf_table(nav_dict: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Build a formatted performance summary table from a dict of NAV DataFrames.
+
+    Parameters:
+        nav_dict: mapping of strategy label -> NAV DataFrame (with column "NAV").
+
+    Returns:
+        pd.DataFrame with one column per strategy and metrics as rows.
+
+    Example:
+        format_perf_table({
+            "Static":  backtester_static.nav,
+            "Dynamic": backtester_dynamic.nav,
+        })
+    """
+    rows = {}
+    for label, nav in nav_dict.items():
+        rets = levels_to_returns(nav["NAV"]).dropna()
+        rows[label] = pd.Series({
+            "Ann. Return": f"{realized_returns(rets) * 100:.2f}%",
+            "Ann. Vol": f"{realized_volatility(rets) * 100:.2f}%",
+            "Sharpe": f"{sharpe_ratio(rets):.3f}",
+            "Max DD": f"{max_drawdown(rets) * 100:.2f}%",
+            "Calmar": f"{calmar_ratio(rets):.3f}",
+        })
+    return pd.DataFrame(rows)
