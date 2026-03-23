@@ -1,8 +1,8 @@
 import pandas as pd
 
-from projet.investment_lab.constants import TRADING_DAYS_PER_YEAR
-from projet.investment_lab.metrics.util import returns_to_levels, levels_to_returns
-from projet.investment_lab.metrics.volatility import realized_volatility
+from investment_lab.constants import TRADING_DAYS_PER_YEAR
+from investment_lab.metrics.util import returns_to_levels, levels_to_returns
+from investment_lab.metrics.volatility import realized_volatility
 
 
 def realized_returns(returns: pd.Series) -> float:
@@ -110,7 +110,7 @@ def format_perf_table(nav_dict: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """
     rows = {}
     for label, nav in nav_dict.items():
-        rets = levels_to_returns(nav["NAV"]).dropna()
+        rets = nav["NAV"].diff().dropna()
         rows[label] = pd.Series({
             "Ann. Return": f"{realized_returns(rets) * 100:.2f}%",
             "Ann. Vol": f"{realized_volatility(rets) * 100:.2f}%",

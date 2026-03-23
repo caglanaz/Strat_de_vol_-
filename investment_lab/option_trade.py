@@ -233,12 +233,12 @@ class DeltaHedgedOptionTrade(OptionTrade):
             .apply(
                 lambda x: pd.Series(
                     {
-                        "option_id": x["ticker"].iloc[0],
-                        "expiration": x["date"].iloc[0] + pd.offsets.BusinessDay(n=1),
+                        "option_id": x.name[1],
+                        "expiration": x.name[0] + pd.offsets.BusinessDay(n=1),
                         "leg_name": "DELTA_HEDGING",
                         "weight": -(x["delta"] * x["weight"]).sum(),
                     }
-                )
+                ), include_groups = False
             )
             .reset_index()
         )

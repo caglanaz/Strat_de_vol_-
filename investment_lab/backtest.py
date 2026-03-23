@@ -56,7 +56,10 @@ class StrategyBacktester:
         df_positions["prev_gamma"] = df_positions.groupby("option_id")["gamma"].shift(1).bfill()
         df_positions["prev_delta"] = df_positions.groupby("option_id")["delta"].shift(1).bfill()
         df_positions["prev_vega"] = df_positions.groupby("option_id")["vega"].shift(1).bfill()
-        df_positions["obs_date"] = df_positions["entry_date"].apply(lambda x: x - pd.Timedelta(days=1))
+        # Previous (lookahead-prone): use entry_date - 1 day
+        # df_positions["obs_date"] = df_positions["entry_date"].apply(lambda x: x - pd.Timedelta(days=1))
+        # Use prior business day NAV to avoid lookahead bias.
+        df_positions["obs_date"] = df_positions["date"].apply(lambda x: x - pd.offsets.BDay(1))
         df_pnl = pd.DataFrame(
             [[0, 0, 0, 0, 0, 0, 0, 0]],
             columns=self._PNL_COLS,
@@ -77,6 +80,7 @@ class StrategyBacktester:
             df_day = df_positions[df_positions["date"] == d].copy()
             df_day = df_day.merge(df_nav, left_on="obs_date", right_index=True, how="left")
             df_day["scaled_weight"] = (df_day["weight"] * df_day["NAV"]).fillna(df_day["weight"])
+            #df_day["scaled_weight"] = df_day["weight"]
             df_day["pnl"] = df_day["scaled_weight"] * df_day["dv"]
             df_day["gamma_pnl"] = 0.5 * df_day["scaled_weight"] * df_day["dS"] ** 2 * df_day["prev_gamma"]
             df_day["delta_pnl"] = df_day["scaled_weight"] * df_day["dS"] * df_day["prev_delta"]
@@ -110,7 +114,10 @@ class StrategyBacktester:
         """Extend the position dataframe with option info + date shifting"""
         logging.info("Shifting +1 business to ensure valid trading result.")
         df_positions_cp = df_positions.copy()
-        # df_positions_cp["date"] = df_positions_cp["date"].apply(lambda x: x + pd.offsets.BDay(1))
+        # Previous (lookahead-prone): trade on observation date
+        # df_positions_cp["date"] = df_positions_cp["date"]
+        # Shift trade execution to next business day to avoid lookahead bias.
+        df_positions_cp["date"] = df_positions_cp["date"].apply(lambda x: x + pd.offsets.BDay(1))
         start, end = df_positions_cp["date"].min(), df_positions_cp["date"].max()
         tickers = df_positions_cp["ticker"].unique().tolist()
         df_options = OptionLoader.load_data(start, end, process_kwargs={"ticker": tickers})
@@ -132,7 +139,8 @@ class StrategyBacktester:
             (df_positions_extended["date"] <= df_positions_extended["expiration"]) | df_positions_extended["expiration"].isna()
         ]
         df_positions_extended = ffill_options_data(df_positions_extended)
-        return df_positions_extended
+        #return df_positions_extended
+        return df_positions_extended.drop_duplicates(subset=["date", "option_id", "entry_date", "leg_name"])
 
     @classmethod
     def apply_tcost(cls, df_positions: pd.DataFrame, **kwargs) -> pd.DataFrame:

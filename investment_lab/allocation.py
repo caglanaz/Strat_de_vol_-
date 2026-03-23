@@ -3,19 +3,21 @@ import numpy as np
 
 
 def compute_linear_weights(
-    spreads: pd.Series,
+    spread: pd.Series,
     w_min: float = 0.0,
     w_max: float = 1.0,
-    spread_min: float | None = None,
-    spread_max: float | None = None,
+    window : int = 60,
 ) -> pd.Series:
-    spread = spreads.values.astype(float)
-    spread_min = spread_min if spread_min is not None else float(np.percentile(spread, 5))
-    spread_max = spread_max if spread_max is not None else float(np.percentile(spread, 95))
-    spread_clipped = np.clip(spread, spread_min, spread_max)
-    weights = w_min + (w_max - w_min) * (spread_clipped - spread_min) / (spread_max - spread_min)
-    return pd.Series(weights, index=spreads.index, name="dynamic_weight")
-
+    s = spread.astype(float)
+ 
+    s_min = s.expanding(min_periods=window).quantile(0.05)
+    s_max = s.expanding(min_periods=window).quantile(0.95)
+ 
+    denom = (s_max - s_min).replace(0, np.nan)
+    weights = w_min + (w_max - w_min) * (s.clip(s_min, s_max) - s_min) / denom
+    weights = weights.fillna(w_min)
+ 
+    return weights.rename("dynamic_weight")
 
 def rescale_positions_with_signal(
     df_positions: pd.DataFrame,
