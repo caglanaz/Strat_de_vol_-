@@ -18,15 +18,12 @@ def implied_volatility_vectorized(
     tol: float = 1e-7,
     max_iterations: int = 10000,
 ) -> pd.Series:
-    """
-    Computes Implied Volatility using the Newton-Raphson method.
-    Optimized for Pandas Series input.
-    """
+    """Estimate implied volatility with a vectorized Newton-Raphson solver."""
     # Initialize sigma with the initial guess, matching the index of the input
     sigma = pd.Series(initial_guess, index=market_price.index, dtype=float)
     logging.info("Calculate implied volatility using Newton-Raphson method")
     logging.info(
-        "Parameters: initial_guess=%s, tol=%s, max_iteration=%s",
+        "Parameters: initial_guess=%s, tol=%s, max_iterations=%s",
         initial_guess,
         tol,
         max_iterations,
@@ -38,8 +35,8 @@ def implied_volatility_vectorized(
         current_price = black_scholes_price(S, K, T, r, sigma, option_type)
         vega = vega_black_scholes(S, K, T, r, sigma)
 
-        # Newton-Raphson step: sigma_new = sigma - f(sigma)/f'(sigma)
-        # We add a small epsilon to vega to avoid division by zero
+        # Newton-Raphson step: sigma_new = sigma - f(sigma) / f'(sigma)
+        # Mask zero vega values to avoid division by zero updates.
         price_diff = market_price - current_price
 
         # Only update sigma where vega is significant to avoid explosion
