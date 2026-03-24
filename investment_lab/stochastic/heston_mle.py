@@ -10,12 +10,15 @@ from investment_lab.util import check_is_true
 
 @dataclass
 class HestonFitResult:
+    """Container for one Heston calibration result."""
+
     params: HestonParams
     success: bool
     fun: float
 
 
 def _to_params(x: np.ndarray) -> HestonParams:
+    """Convert an optimization vector into `HestonParams`."""
     return HestonParams(kappa=x[0], theta=x[1], xi=x[2], rho=x[3], mu=x[4])
 
 
@@ -40,6 +43,7 @@ def fit_heston_params_rolling(
     kf = ukf or ScalarUnscentedKalmanFilter()
 
     def objective(x: np.ndarray) -> float:
+        """Return the negative UKF log-likelihood for candidate parameters."""
         params = _to_params(x)
         model = HestonStateSpaceModel(params)
         res = kf.filter(r, model=model, init_state=init_state, init_var=init_var, measurement_var=measurement_var)

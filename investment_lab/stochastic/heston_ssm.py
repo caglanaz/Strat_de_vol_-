@@ -21,6 +21,7 @@ class HestonStateSpaceModel:
     """One-factor latent variance state-space model using Heston dynamics."""
 
     def __init__(self, params: HestonParams, dt: float = 1.0 / TRADING_DAYS_PER_YEAR) -> None:
+        """Validate and store Heston parameters and time step."""
         check_is_true(dt > 0, "dt must be > 0")
         check_is_true(params.kappa > 0, "kappa must be > 0")
         check_is_true(params.theta > 0, "theta must be > 0")
