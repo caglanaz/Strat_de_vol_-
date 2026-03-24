@@ -8,6 +8,8 @@ from investment_lab.util import check_is_true
 
 @dataclass
 class UKFResult:
+    """Outputs produced by one scalar UKF filtering pass."""
+
     filtered_state: np.ndarray
     filtered_var: np.ndarray
     pred_obs_mean: np.ndarray
@@ -16,9 +18,10 @@ class UKFResult:
 
 
 class ScalarUnscentedKalmanFilter:
-    """Lightweight scalar UKF for latent variance filtering."""
+    """Scalar UKF for latent variance filtering."""
 
     def __init__(self, alpha: float = 1e-3, beta: float = 2.0, kappa: float = 0.0) -> None:
+        """Store UKF scaling parameters and validate their ranges."""
         check_is_true(alpha > 0, "alpha must be > 0")
         check_is_true(beta >= 0, "beta must be >= 0")
         self.alpha = alpha
@@ -26,6 +29,7 @@ class ScalarUnscentedKalmanFilter:
         self.kappa = kappa
 
     def _sigma_points(self, mean: float, var: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Build scalar sigma points and their mean/covariance weights."""
         n = 1
         lam = self.alpha**2 * (n + self.kappa) - n
         c = n + lam
@@ -45,6 +49,7 @@ class ScalarUnscentedKalmanFilter:
         init_var: float,
         measurement_var: float = 0.0,
     ) -> UKFResult:
+        """Run UKF filtering and return states, prediction moments, and log-likelihood."""
         obs = np.asarray(observations, dtype=float)
         n = len(obs)
 
