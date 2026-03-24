@@ -24,6 +24,7 @@ class DataLoader(ABC):
         process_kwargs: Optional[dict] = None,
         extra_fields_kwargs: Optional[dict] = None,
     ) -> pd.DataFrame:
+        """Load, validate, process, and date-filter a dataset."""
         file_path = cls._get_path()
         min_date, max_date = cls._get_valid_date_range()
         start_date = start_date or min_date
@@ -58,17 +59,21 @@ class DataLoader(ABC):
     @classmethod
     @abstractmethod
     def _get_path(cls) -> str:
+        """Return the source file path for this loader."""
         raise NotImplementedError
 
     @classmethod
     @abstractmethod
     def _get_valid_date_range(cls) -> tuple[datetime, datetime]:
+        """Return the inclusive date range available in the source data."""
         raise NotImplementedError
 
     @classmethod
     def _process_loaded_data(cls, df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        """Apply loader-specific processing after reading raw data."""
         return df
 
     @classmethod
     def _add_extra_fields(cls, df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        """Add optional derived fields to the processed data."""
         return df
