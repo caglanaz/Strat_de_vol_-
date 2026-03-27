@@ -49,6 +49,16 @@ class HestonStateSpaceModel:
         """Var[r_t | v_t], with optional additive observation noise."""
         return max(max(v_t, 1e-12) * self.dt + measurement_var, 1e-12)
 
+    def correlated_return_shock(self, state_shock: float, orthogonal_shock: float) -> float:
+        """Build return shock correlated with the variance shock."""
+        rho = self.params.rho
+        return rho * state_shock + np.sqrt(max(1.0 - rho**2, 0.0)) * orthogonal_shock
+
+    def observe_with_correlated_shocks(self, v_t: float, state_shock: float, orthogonal_shock: float) -> float:
+        """Observe one return using shocks with Corr(dW1, dW2) = rho."""
+        correlated_shock = self.correlated_return_shock(state_shock, orthogonal_shock)
+        return self.observe_mean(v_t) + np.sqrt(max(v_t, 1e-12) * self.dt) * correlated_shock
+
     def transition(self, v_prev: float, shock: float) -> float:
         """Simulate one latent-variance step."""
         return max(self.transition_mean(v_prev) + np.sqrt(self.transition_var(v_prev)) * shock, 1e-12)
