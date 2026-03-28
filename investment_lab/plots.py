@@ -22,24 +22,26 @@ def _clip_for_display(series: pd.Series, lower_q: float, upper_q: float) -> pd.S
 
 def plot_results(
     backtester_static: StrategyBacktester,
-    backtester_dynamic: StrategyBacktester,
+    backtester_dynamic_heston: StrategyBacktester,
+    backtester_dynamic_heston_mean_modified: StrategyBacktester,
     spread: pd.Series,
     dynamic_weights: pd.Series,
     sigma_filtered: pd.Series,
     log_returns: pd.Series,
-    rv_window: int = 21,
+    rv_window: int = 5,
     display_clip_quantiles: tuple[float, float] = (0.01, 0.99),
 ) -> None:
     """Plot NAV, spread + weights, and volatility comparison.
 
     Parameters:
         backtester_static  : fitted static StrategyBacktester
-        backtester_dynamic : fitted dynamic StrategyBacktester
+        backtester_dynamic_heston : fitted dynamic StrategyBacktester Heston
+        backtester_dynamic_heston_mean_modified : fitted dynamic StrategyBacktester mean modified
         spread             : IV-RV spread series s_t
         dynamic_weights    : allocation weight series w_t
         sigma_filtered     : UKF filtered vol series
         log_returns        : daily log-return series (for rolling RV)
-        rv_window          : rolling window for realised vol (default 21 days)
+        rv_window          : rolling window for realised vol (default 5 days)
         display_clip_quantiles : winsorization quantiles for spread/sigma display
     """
     lower_q, upper_q = display_clip_quantiles
@@ -51,7 +53,11 @@ def plot_results(
     # --- NAV ---
     ax = axes[0]
     ax.plot(backtester_static.nav.index,  backtester_static.nav["NAV"],  label="Static")
-    ax.plot(backtester_dynamic.nav.index, backtester_dynamic.nav["NAV"], label="Dynamic", linestyle="--")
+    ax.plot(backtester_dynamic_heston.nav.index, backtester_dynamic_heston.nav["NAV"],
+            label="Dynamic Heston", linestyle="--")
+    ax.plot(backtester_dynamic_heston_mean_modified.nav.index,
+            backtester_dynamic_heston_mean_modified.nav["NAV"],
+            label="Dynamic Heston mean modified", linestyle="--")
     ax.set_title("NAV — Static vs Dynamic delta-hedged carry")
     ax.set_ylabel("NAV")
     ax.legend()
