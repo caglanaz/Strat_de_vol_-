@@ -9,7 +9,6 @@ from investment_lab.util import check_is_true
 @dataclass(frozen=True)
 class HestonParams:
     """Heston parameters under a simple Euler discretization."""
-
     kappa: float
     theta: float
     xi: float
@@ -20,7 +19,7 @@ class HestonParams:
 class HestonStateSpaceModel:
     """One-factor latent variance state-space model using Heston dynamics."""
 
-    def __init__(self, params: HestonParams, dt: float = 1.0 / TRADING_DAYS_PER_YEAR) -> None:
+    def __init__(self, params: HestonParams, heston : bool = True, dt: float = 1.0 / TRADING_DAYS_PER_YEAR) -> None:
         """Validate and store Heston parameters and time step."""
         check_is_true(dt > 0, "dt must be > 0")
         check_is_true(params.kappa > 0, "kappa must be > 0")
@@ -29,25 +28,33 @@ class HestonStateSpaceModel:
         check_is_true(-1.0 < params.rho < 1.0, "rho must be in (-1, 1)")
         self.params = params
         self.dt = dt
+        self.heston = heston
+
+    @staticmethod
+    def _floor(value: float) -> float:
+        return max(value, 1e-12)
 
     def transition_mean(self, v_prev: float) -> float:
         """E[v_t | v_{t-1}] under Euler discretization."""
         p = self.params
-        return max(v_prev + p.kappa * (p.theta - v_prev) * self.dt, 1e-12)
+        return self._floor(v_prev + p.kappa * (p.theta - v_prev) * self.dt)
 
     def transition_var(self, v_prev: float) -> float:
         """Var[v_t | v_{t-1}] under Euler discretization."""
         p = self.params
-        return max((p.xi**2) * max(v_prev, 1e-12) * self.dt, 1e-12)
+        return self._floor((p.xi**2) * self._floor(v_prev) * self.dt)
 
     def observe_mean(self, v_t: float) -> float:
         """E[r_t | v_t] for log-return increment."""
         p = self.params
-        return (p.mu - 0.5 * max(v_t, 1e-12)) * self.dt
+        if self.heston:
+            return p.mu * self.dt
+        else:
+            return (p.mu - 0.5 * self._floor(v_t)) * self.dt
 
     def observe_var(self, v_t: float, measurement_var: float = 0.0) -> float:
         """Var[r_t | v_t], with optional additive observation noise."""
-        return max(max(v_t, 1e-12) * self.dt + measurement_var, 1e-12)
+        return self._floor(self._floor(v_t) * self.dt + measurement_var)
 
     def correlated_return_shock(self, state_shock: float, orthogonal_shock: float) -> float:
         """Build return shock correlated with the variance shock."""
@@ -57,11 +64,11 @@ class HestonStateSpaceModel:
     def observe_with_correlated_shocks(self, v_t: float, state_shock: float, orthogonal_shock: float) -> float:
         """Observe one return using shocks with Corr(dW1, dW2) = rho."""
         correlated_shock = self.correlated_return_shock(state_shock, orthogonal_shock)
-        return self.observe_mean(v_t) + np.sqrt(max(v_t, 1e-12) * self.dt) * correlated_shock
+        return self.observe_mean(v_t) + np.sqrt(self._floor(v_t) * self.dt) * correlated_shock
 
     def transition(self, v_prev: float, shock: float) -> float:
         """Simulate one latent-variance step."""
-        return max(self.transition_mean(v_prev) + np.sqrt(self.transition_var(v_prev)) * shock, 1e-12)
+        return self._floor(self.transition_mean(v_prev) + np.sqrt(self.transition_var(v_prev)) * shock)
 
     def observe(self, v_t: float, shock: float, measurement_var: float = 0.0) -> float:
         """Simulate one log-return observation."""
