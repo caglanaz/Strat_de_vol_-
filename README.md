@@ -5,9 +5,29 @@
 Run the following commands to install the required packages:
 
 ```bash
-pip install -r requirement.txt
+pip install -r requirements.txt
 pip install -e .
 ```
+
+## Final project notebook
+
+The final submission notebook is:
+
+- `Notebook.ipynb`
+
+It implements a volatility-timing carry strategy with a UKF on a Heston-type state-space model, and compares two observation specifications:
+
+- `heston=True`: `E[r_t | v_t] = mu * dt`
+- `heston=False` (mean modified): `E[r_t | v_t] = (mu - 0.5 * v_t) * dt`
+
+Main reproducibility settings used in the notebook:
+
+- rolling calibration window: `window = 63`
+- rolling MLE recalibration: `recalib_every = 5`
+
+For plotting, the active model case is selected with:
+
+- `active_case = "heston"` or `active_case = "heston_mean_modified"`
 
 # Disclaimer
 
