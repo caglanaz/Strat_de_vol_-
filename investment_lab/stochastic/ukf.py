@@ -28,35 +28,44 @@ class ScalarUnscentedKalmanFilter:
         self.beta = beta
         self.kappa = kappa
 
-    def _sigma_points(self, mean: np.ndarray, cov: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Build sigma points and unscented weights for an arbitrary dimension."""
-        n = int(mean.shape[0])
-        lam = self.alpha**2 * (n + self.kappa) - n
-        c = n + lam
-        check_is_true(c > 0, "Invalid UKF scaling: n + lambda must be > 0")
-
+    @staticmethod
+    def _stable_cholesky(cov: np.ndarray, scale: float) -> np.ndarray:
+        """Return chol(scale * cov) with small diagonal jitter if needed."""
+        n = int(cov.shape[0])
         cov_sym = 0.5 * (cov + cov.T)
+        eye = np.eye(n)
         jitter = 1e-12
-        chol = None
+
         for _ in range(6):
             try:
-                chol = np.linalg.cholesky(c * cov_sym)
-                break
+                return np.linalg.cholesky(scale * cov_sym)
             except np.linalg.LinAlgError:
-                cov_sym = cov_sym + np.eye(n) * jitter
+                cov_sym = cov_sym + eye * jitter
                 jitter *= 10.0
-        check_is_true(chol is not None, "Sigma-point covariance is not positive definite")
 
-        points = np.zeros((2 * n + 1, n), dtype=float)
+        check_is_true(False, "Sigma-point covariance is not positive definite")
+        return np.zeros((n, n), dtype=float)
+
+    def _sigma_points(self, mean: np.ndarray, cov: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Build sigma points and UKF weights around `mean` from covariance `cov`."""
+        n = int(mean.shape[0])
+        lambda_ = self.alpha**2 * (n + self.kappa) - n
+        scale = n + lambda_
+        check_is_true(scale > 0, "Invalid UKF scaling: n + lambda must be > 0")
+
+        sqrt_cov = self._stable_cholesky(cov, scale)
+
+        # For each state dimension, add and subtract one scaled covariance direction.
+        offsets = sqrt_cov.T
+        points = np.empty((2 * n + 1, n), dtype=float)
         points[0] = mean
-        for i in range(n):
-            points[i + 1] = mean + chol[:, i]
-            points[n + i + 1] = mean - chol[:, i]
+        points[1 : n + 1] = mean + offsets
+        points[n + 1 :] = mean - offsets
 
-        wm = np.full(2 * n + 1, 1.0 / (2.0 * c), dtype=float)
-        wc = np.full(2 * n + 1, 1.0 / (2.0 * c), dtype=float)
-        wm[0] = lam / c
-        wc[0] = lam / c + (1.0 - self.alpha**2 + self.beta)
+        wm = np.full(2 * n + 1, 1.0 / (2.0 * scale), dtype=float)
+        wc = np.full(2 * n + 1, 1.0 / (2.0 * scale), dtype=float)
+        wm[0] = lambda_ / scale
+        wc[0] = lambda_ / scale + (1.0 - self.alpha**2 + self.beta)
         return points, wm, wc
 
     def filter(
