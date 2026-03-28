@@ -26,6 +26,7 @@ def fit_heston_params_rolling(
     returns: np.ndarray,
     initial_guess: tuple[float, float, float, float, float] = (2.0, 0.04, 0.4, -0.5, 0.0),
     bounds: tuple[tuple[float, float], ...] = ((1e-3, 20.0), (1e-6, 2.0), (1e-4, 5.0), (-0.99, 0.99), (-1.0, 1.0)),
+    heston: bool = True,
     init_state: float = 0.04,
     init_var: float = 0.01,
     measurement_var: float = 1e-8,
@@ -45,7 +46,7 @@ def fit_heston_params_rolling(
     def objective(x: np.ndarray) -> float:
         """Return the negative UKF log-likelihood for candidate parameters."""
         params = _to_params(x)
-        model = HestonStateSpaceModel(params)
+        model = HestonStateSpaceModel(params, heston=heston)
         res = kf.filter(r, model=model, init_state=init_state, init_var=init_var, measurement_var=measurement_var)
         return -res.loglikelihood
 
